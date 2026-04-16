@@ -10,9 +10,9 @@
 ![Shell](https://img.shields.io/badge/shell-bash-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 
-On-demand packet capture tool for AKS Linux nodes. Built for Azure Support
-Engineers and AKS administrators to quickly collect network traces during
-live troubleshooting sessions — no Helm, no persistent storage, no setup.
+A lightweight bash script that automates packet captures on AKS Linux nodes.
+No Helm, no persistent storage, no node SSH required — just kubectl access
+and five prompts.
 
 ---
 
