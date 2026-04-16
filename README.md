@@ -50,10 +50,15 @@ Output folder created with the capture file + sharing instructions
 
 ## Prerequisites
 
+> **No SSH access to the AKS node is required.** This script runs entirely
+> from your local machine or jumpbox using `kubectl`. It deploys a temporary
+> debug pod on the node automatically, captures the traffic, copies the file
+> back to your machine, and cleans up — all without ever logging into the node.
+
 | Requirement | Why |
 |---|---|
 | `kubectl` installed and configured | Script uses kubectl to find nodes, deploy pods, and copy files |
-| AKS cluster access | Must be able to reach the cluster from your terminal |
+| AKS cluster access | Run `az aks get-credentials --resource-group <rg> --name <cluster>` to connect |
 | Permission to create privileged pods | Debug pod runs with `hostNetwork: true` and `privileged: true` |
 | `nicolaka/netshoot` pullable from nodes | Used as the debug pod image — includes tcpdump |
 
