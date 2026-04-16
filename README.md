@@ -93,7 +93,7 @@ The script will prompt you for:
 | Pod name | `my-app-pod-7d6f8b-xkq2p` | none |
 | Namespace | `production` | `default` |
 | Target IP or hostname | `10.0.1.50` or `sqlserver.internal` | none |
-| Target port | `5432` | `1433` |
+| Target port | `1433` | none |
 | Capture duration (seconds) | `120` | `60` |
 
 After confirming the inputs, the script runs automatically.
