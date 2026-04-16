@@ -17,6 +17,50 @@ TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 OUTPUT_DIR="./aks-pcap-${TIMESTAMP}"
 PCAP_FILE="capture-${TIMESTAMP}.pcap"
 INSTRUCTIONS_FILE="${OUTPUT_DIR}/HOW_TO_SHARE_WITH_SUPPORT.txt"
+DEBUG_POD_NAME="pcap-debug-${TIMESTAMP}"
+READER_POD="pcap-reader-${TIMESTAMP}"
+
+# =============================================================
+# CLEANUP TRAP — runs on exit, Ctrl+C, or error
+# =============================================================
+
+cleanup() {
+  kubectl delete pod "$DEBUG_POD_NAME" -n "$NAMESPACE" --ignore-not-found > /dev/null 2>&1 || true
+  kubectl delete pod "$READER_POD" -n "$NAMESPACE" --ignore-not-found > /dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+# =============================================================
+# INPUT VALIDATION FUNCTIONS
+# =============================================================
+
+validate_hostname() {
+  if [[ ! "$1" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    echo -e "${RED}ERROR: Invalid target host '$1'. Use only letters, numbers, dots, and hyphens.${RESET}"
+    exit 1
+  fi
+}
+
+validate_port() {
+  if [[ ! "$1" =~ ^[0-9]+$ ]] || (( $1 < 1 || $1 > 65535 )); then
+    echo -e "${RED}ERROR: Invalid port '$1'. Must be a number between 1 and 65535.${RESET}"
+    exit 1
+  fi
+}
+
+validate_duration() {
+  if [[ ! "$1" =~ ^[0-9]+$ ]] || (( $1 < 1 || $1 > 3600 )); then
+    echo -e "${RED}ERROR: Invalid duration '$1'. Must be a number between 1 and 3600 seconds.${RESET}"
+    exit 1
+  fi
+}
+
+validate_k8s_name() {
+  if [[ ! "$1" =~ ^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?$ ]]; then
+    echo -e "${RED}ERROR: Invalid Kubernetes name '$1'. Use only lowercase letters, numbers, and hyphens.${RESET}"
+    exit 1
+  fi
+}
 
 echo ""
 echo -e "${CYAN}${BOLD}============================================${RESET}"
@@ -25,20 +69,29 @@ echo -e "${CYAN}${BOLD}============================================${RESET}"
 echo ""
 
 # =============================================================
-# STEP 1 — Collect inputs
+# STEP 1 — Collect and validate inputs
 # =============================================================
 
 echo -e "${BOLD}Please answer the following questions:${RESET}"
 echo ""
 
 read -p "1. Pod name: " POD_NAME
+validate_k8s_name "$POD_NAME"
+
 read -p "2. Namespace (press Enter for 'default'): " NAMESPACE
 NAMESPACE=${NAMESPACE:-default}
+validate_k8s_name "$NAMESPACE"
+
 read -p "3. Target IP or hostname: " TARGET_HOST
+validate_hostname "$TARGET_HOST"
+
 read -p "4. Destination port: " TARGET_PORT
 TARGET_PORT=${TARGET_PORT:-1433}
+validate_port "$TARGET_PORT"
+
 read -p "5. Capture duration in seconds (press Enter for 60): " DURATION
 DURATION=${DURATION:-60}
+validate_duration "$DURATION"
 
 echo ""
 echo -e "${YELLOW}${BOLD}--- Summary of inputs ---${RESET}"
@@ -87,8 +140,6 @@ echo -e "${GREEN}  Pod is on node: $NODE${RESET}"
 echo ""
 echo -e "${CYAN}[3/6] Launching privileged debug pod on node...${RESET}"
 echo -e "${YELLOW}  This may take 20-30 seconds...${RESET}"
-
-DEBUG_POD_NAME="pcap-debug-${TIMESTAMP}"
 
 cat <<EOF | kubectl apply -f - > /dev/null
 apiVersion: v1
@@ -163,8 +214,6 @@ echo ""
 echo -e "${CYAN}[5/6] Copying capture file to local machine...${RESET}"
 
 mkdir -p "$OUTPUT_DIR"
-
-READER_POD="pcap-reader-${TIMESTAMP}"
 
 cat <<EOF | kubectl apply -f - > /dev/null
 apiVersion: v1

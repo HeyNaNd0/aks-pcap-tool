@@ -40,8 +40,15 @@ section() {
   echo -e "${YELLOW}${BOLD}$1${RESET}"
 }
 
+# Run a validator in a subshell so exit 1 does not kill the test runner
+# Returns 0 if valid, 1 if invalid
+safe_validate() {
+  ("$@") 2>/dev/null
+  return $?
+}
+
 # =============================================================
-# TEST 1 — Script exists
+# TEST 1 — Script exists and is executable
 # =============================================================
 
 section "[1] Script Validation"
@@ -52,10 +59,6 @@ else
   fail "Script not found at $SCRIPT_PATH"
 fi
 
-# =============================================================
-# TEST 2 — Script is executable
-# =============================================================
-
 if [ -x "$SCRIPT_PATH" ]; then
   pass "Script is executable"
 else
@@ -63,7 +66,7 @@ else
 fi
 
 # =============================================================
-# TEST 3 — Script contains required functions/flags
+# TEST 2 — Script contains required flags and settings
 # =============================================================
 
 section "[2] Script Content Checks"
@@ -97,51 +100,133 @@ grep -q "kubectl delete pod" "$SCRIPT_PATH" && \
   fail "Missing debug pod cleanup"
 
 # =============================================================
-# TEST 4 — Mock kubectl and simulate output folder creation
+# TEST 3 — Security fixes are present
 # =============================================================
 
-section "[3] Output Folder Simulation"
+section "[3] Security Checks"
 
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+grep -q "validate_hostname" "$SCRIPT_PATH" && \
+  pass "validate_hostname function present" || \
+  fail "Missing validate_hostname — HIGH severity finding not fixed"
+
+grep -q "validate_port" "$SCRIPT_PATH" && \
+  pass "validate_port function present" || \
+  fail "Missing validate_port — HIGH severity finding not fixed"
+
+grep -q "validate_duration" "$SCRIPT_PATH" && \
+  pass "validate_duration function present" || \
+  fail "Missing validate_duration — input validation not fixed"
+
+grep -q "validate_k8s_name" "$SCRIPT_PATH" && \
+  pass "validate_k8s_name function present" || \
+  fail "Missing validate_k8s_name — MEDIUM severity finding not fixed"
+
+grep -q "trap cleanup EXIT" "$SCRIPT_PATH" && \
+  pass "trap cleanup EXIT present (pod cleanup on Ctrl+C)" || \
+  fail "Missing trap cleanup — LOW severity finding not fixed"
+
+# =============================================================
+# TEST 4 — Input validation logic works correctly
+# =============================================================
+
+section "[4] Input Validation Logic"
+
+# Load validation functions from the script into current shell
+# We extract just the function definitions so we can test them directly
+eval "$(grep -A 10 'validate_hostname()' "$SCRIPT_PATH" | head -6)"
+eval "$(grep -A 10 'validate_port()' "$SCRIPT_PATH" | head -7)"
+eval "$(grep -A 10 'validate_duration()' "$SCRIPT_PATH" | head -7)"
+eval "$(grep -A 10 'validate_k8s_name()' "$SCRIPT_PATH" | head -6)"
+
+# --- hostname ---
+safe_validate validate_hostname "10.0.1.50" && \
+  pass "Valid IP accepted (10.0.1.50)" || \
+  fail "Valid IP rejected"
+
+safe_validate validate_hostname "sqlserver.internal" && \
+  pass "Valid hostname accepted (sqlserver.internal)" || \
+  fail "Valid hostname rejected"
+
+safe_validate validate_hostname "1.2.3.4;rm -rf /" && \
+  fail "Shell injection accepted — SECURITY ISSUE" || \
+  pass "Shell injection blocked (1.2.3.4;rm -rf /)"
+
+safe_validate validate_hostname '$(whoami)' && \
+  fail "Command substitution accepted — SECURITY ISSUE" || \
+  pass "Command substitution blocked"
+
+# --- port ---
+safe_validate validate_port "1433" && \
+  pass "Valid port accepted (1433)" || \
+  fail "Valid port rejected"
+
+safe_validate validate_port "99999" && \
+  fail "Out of range port accepted" || \
+  pass "Out of range port blocked (99999)"
+
+safe_validate validate_port "abc" && \
+  fail "Non-numeric port accepted" || \
+  pass "Non-numeric port blocked (abc)"
+
+safe_validate validate_port "0" && \
+  fail "Port 0 accepted" || \
+  pass "Port 0 blocked"
+
+# --- duration ---
+safe_validate validate_duration "60" && \
+  pass "Valid duration accepted (60)" || \
+  fail "Valid duration rejected"
+
+safe_validate validate_duration "9999" && \
+  fail "Duration over 3600 accepted" || \
+  pass "Duration over 3600 blocked (9999)"
+
+safe_validate validate_duration "abc" && \
+  fail "Non-numeric duration accepted" || \
+  pass "Non-numeric duration blocked (abc)"
+
+# --- k8s name ---
+safe_validate validate_k8s_name "test-pod" && \
+  pass "Valid pod name accepted (test-pod)" || \
+  fail "Valid pod name rejected"
+
+safe_validate validate_k8s_name "UPPERCASE-POD" && \
+  fail "Uppercase pod name accepted" || \
+  pass "Uppercase pod name blocked"
+
+safe_validate validate_k8s_name "pod name with spaces" && \
+  fail "Pod name with spaces accepted" || \
+  pass "Pod name with spaces blocked"
+
+# =============================================================
+# TEST 5 — Output folder simulation
+# =============================================================
+
+section "[5] Output Folder Simulation"
+
+TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 TEST_OUTPUT_DIR="/tmp/aks-pcap-test-${TIMESTAMP}"
-TEST_PCAP="${TEST_OUTPUT_DIR}/capture_${TIMESTAMP}.pcap"
+TEST_PCAP="${TEST_OUTPUT_DIR}/capture-${TIMESTAMP}.pcap"
 TEST_INSTRUCTIONS="${TEST_OUTPUT_DIR}/HOW_TO_SHARE_WITH_SUPPORT.txt"
 
 mkdir -p "$TEST_OUTPUT_DIR"
+[ -d "$TEST_OUTPUT_DIR" ] && pass "Output directory created" || fail "Could not create output directory"
 
-if [ -d "$TEST_OUTPUT_DIR" ]; then
-  pass "Output directory created successfully"
-else
-  fail "Could not create output directory"
-fi
-
-# Simulate pcap file creation
 touch "$TEST_PCAP"
-if [ -f "$TEST_PCAP" ]; then
-  pass "Capture file placeholder created"
-else
-  fail "Could not create capture file"
-fi
+[ -f "$TEST_PCAP" ] && pass "Capture file placeholder created" || fail "Could not create capture file"
 
-# Simulate instructions file creation
 cat > "$TEST_INSTRUCTIONS" << EOF
 TEST — HOW_TO_SHARE_WITH_SUPPORT.txt
 Generated by dry-run test at $TIMESTAMP
 EOF
-
-if [ -f "$TEST_INSTRUCTIONS" ]; then
-  pass "HOW_TO_SHARE_WITH_SUPPORT.txt created successfully"
-else
-  fail "Could not create instructions file"
-fi
+[ -f "$TEST_INSTRUCTIONS" ] && pass "HOW_TO_SHARE_WITH_SUPPORT.txt created" || fail "Could not create instructions file"
 
 # =============================================================
-# TEST 5 — Mock kubectl node lookup
+# TEST 6 — Mock kubectl checks
 # =============================================================
 
-section "[4] Mock kubectl Checks"
+section "[6] Mock kubectl Checks"
 
-# Create a temporary mock kubectl
 MOCK_BIN="/tmp/mock-kubectl-${TIMESTAMP}"
 cat > "$MOCK_BIN" << 'EOF'
 #!/bin/bash
@@ -155,41 +240,27 @@ fi
 EOF
 chmod +x "$MOCK_BIN"
 
-# Test mock kubectl returns a node name
 NODE=$("$MOCK_BIN" get pod test-pod -n default -o jsonpath='{.spec.nodeName}')
-if [ "$NODE" = "aks-nodepool1-12345678-vmss000000" ]; then
-  pass "Mock kubectl node lookup returns expected node name"
-else
+[ "$NODE" = "aks-nodepool1-12345678-vmss000000" ] && \
+  pass "Mock kubectl node lookup returns expected node name" || \
   fail "Mock kubectl node lookup failed — got: $NODE"
-fi
 
-# Test mock kubectl returns a context
 CONTEXT=$("$MOCK_BIN" config current-context)
-if [ "$CONTEXT" = "my-test-cluster" ]; then
-  pass "Mock kubectl context check returns expected context"
-else
+[ "$CONTEXT" = "my-test-cluster" ] && \
+  pass "Mock kubectl context check returns expected context" || \
   fail "Mock kubectl context check failed — got: $CONTEXT"
-fi
 
 # =============================================================
-# TEST 6 — Cleanup simulation
+# TEST 7 — Cleanup simulation
 # =============================================================
 
-section "[5] Cleanup Simulation"
+section "[7] Cleanup Simulation"
 
 rm -rf "$TEST_OUTPUT_DIR"
-if [ ! -d "$TEST_OUTPUT_DIR" ]; then
-  pass "Output directory cleaned up successfully"
-else
-  fail "Output directory was not cleaned up"
-fi
+[ ! -d "$TEST_OUTPUT_DIR" ] && pass "Output directory cleaned up" || fail "Output directory not cleaned up"
 
 rm -f "$MOCK_BIN"
-if [ ! -f "$MOCK_BIN" ]; then
-  pass "Mock kubectl binary cleaned up successfully"
-else
-  fail "Mock kubectl binary was not cleaned up"
-fi
+[ ! -f "$MOCK_BIN" ] && pass "Mock kubectl binary cleaned up" || fail "Mock kubectl binary not cleaned up"
 
 # =============================================================
 # RESULTS
