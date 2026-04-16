@@ -114,22 +114,6 @@ aks-pcap-20250415_143022/
 
 ---
 
-## Analyzing the Capture (Optional)
-
-Open the `.pcap` file in [Wireshark](https://www.wireshark.org/download.html)
-and use these filters depending on your issue:
-
-| Issue | Wireshark Filter |
-|---|---|
-| All SQL Server traffic | `tcp.port == 1433` |
-| TLS handshake frames | `tls.handshake` |
-| TLS failures (Error 35) | `tls.alert_message` |
-| Connection resets | `tcp.flags.reset == 1` |
-| DNS resolution failures | `dns` |
-| All traffic to target IP | `ip.addr == <target-ip>` |
-
----
-
 ## Using a Custom Image
 
 If your cluster cannot pull `nicolaka/netshoot` from Docker Hub, build and
