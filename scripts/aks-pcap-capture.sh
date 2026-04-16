@@ -48,7 +48,6 @@ prompt_hostname() {
 prompt_port() {
   while true; do
     read -p "$1" VALUE
-    VALUE=${VALUE:-1433}
     if [[ "$VALUE" =~ ^[0-9]+$ ]] && (( VALUE >= 1 && VALUE <= 65535 )); then
       echo "$VALUE"
       return
