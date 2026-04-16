@@ -1,3 +1,9 @@
+> ⚠️ **Disclaimer:** This is a personal project and is not affiliated with,
+> endorsed by, or supported by Microsoft in any way. Use at your own risk.
+> For official guidance, refer to the
+> [Microsoft AKS documentation](https://learn.microsoft.com/en-us/azure/aks/).
+
+
 # aks-pcap-tool
 
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20WSL-blue)
