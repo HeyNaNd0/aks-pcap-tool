@@ -13,9 +13,9 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 OUTPUT_DIR="./aks-pcap-${TIMESTAMP}"
-PCAP_FILE="capture_${TIMESTAMP}.pcap"
+PCAP_FILE="capture-${TIMESTAMP}.pcap"
 INSTRUCTIONS_FILE="${OUTPUT_DIR}/HOW_TO_SHARE_WITH_SUPPORT.txt"
 
 echo ""
@@ -31,11 +31,11 @@ echo ""
 echo -e "${BOLD}Please answer the following questions:${RESET}"
 echo ""
 
-read -p "1. Pod name (the pod having the issue): " POD_NAME
+read -p "1. Pod name: " POD_NAME
 read -p "2. Namespace (press Enter for 'default'): " NAMESPACE
 NAMESPACE=${NAMESPACE:-default}
-read -p "3. Target IP or hostname (e.g. SQL Server IP): " TARGET_HOST
-read -p "4. Target port (press Enter for 1433): " TARGET_PORT
+read -p "3. Target IP or hostname: " TARGET_HOST
+read -p "4. Destination port: " TARGET_PORT
 TARGET_PORT=${TARGET_PORT:-1433}
 read -p "5. Capture duration in seconds (press Enter for 60): " DURATION
 DURATION=${DURATION:-60}
@@ -90,7 +90,6 @@ echo -e "${YELLOW}  This may take 20-30 seconds...${RESET}"
 
 DEBUG_POD_NAME="pcap-debug-${TIMESTAMP}"
 
-# Create a pod manifest that runs tcpdump on the node network namespace
 cat <<EOF | kubectl apply -f - > /dev/null
 apiVersion: v1
 kind: Pod
@@ -114,9 +113,9 @@ spec:
       echo "Checking tcpdump..." &&
       tcpdump --version &&
       echo "Starting capture..." &&
-      tcpdump --snapshot-length=0 -vvv
+      timeout ${DURATION} tcpdump --snapshot-length=0 -vvv
       host ${TARGET_HOST} and port ${TARGET_PORT}
-      -w /host/tmp/${PCAP_FILE} &&
+      -w /host/tmp/${PCAP_FILE} || true &&
       echo "Capture complete."
     securityContext:
       privileged: true
@@ -141,7 +140,6 @@ echo -e "${CYAN}[4/6] Capturing traffic for ${DURATION} seconds...${RESET}"
 echo -e "${YELLOW}  --> REPRODUCE THE ISSUE NOW (trigger the failing connection) <--${RESET}"
 echo ""
 
-# Wait for pod to complete with a progress bar
 for i in $(seq 1 $DURATION); do
   PERCENT=$((i * 100 / DURATION))
   BAR=$(printf '#%.0s' $(seq 1 $((i * 30 / DURATION))))
@@ -150,16 +148,15 @@ for i in $(seq 1 $DURATION); do
 done
 echo ""
 
-# Wait for pod to reach Completed state
 echo -e "${YELLOW}  Waiting for capture pod to finish writing...${RESET}"
 kubectl wait pod "$DEBUG_POD_NAME" -n "$NAMESPACE" \
   --for=condition=Ready=false \
-  --timeout=30s 2>/dev/null || true
+  --timeout=60s 2>/dev/null || true
 
 sleep 3
 
 # =============================================================
-# STEP 6 — Copy pcap file locally
+# STEP 6 — Copy pcap file locally via reader pod
 # =============================================================
 
 echo ""
@@ -167,22 +164,51 @@ echo -e "${CYAN}[5/6] Copying capture file to local machine...${RESET}"
 
 mkdir -p "$OUTPUT_DIR"
 
-kubectl cp "${NAMESPACE}/${DEBUG_POD_NAME}:/tmp/${PCAP_FILE}" \
-  "${OUTPUT_DIR}/${PCAP_FILE}" 2>/dev/null
+READER_POD="pcap-reader-${TIMESTAMP}"
+
+cat <<EOF | kubectl apply -f - > /dev/null
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${READER_POD}
+  namespace: ${NAMESPACE}
+spec:
+  nodeName: ${NODE}
+  tolerations:
+  - operator: "Exists"
+  containers:
+  - name: reader
+    image: nicolaka/netshoot
+    command: ["sleep", "60"]
+    volumeMounts:
+    - name: host-tmp
+      mountPath: /host/tmp
+  volumes:
+  - name: host-tmp
+    hostPath:
+      path: /tmp
+  restartPolicy: Never
+EOF
+
+echo -e "${YELLOW}  Waiting for reader pod to start...${RESET}"
+kubectl wait pod "$READER_POD" -n "$NAMESPACE" \
+  --for=condition=Ready \
+  --timeout=60s > /dev/null
+
+kubectl cp "${NAMESPACE}/${READER_POD}:/host/tmp/${PCAP_FILE}" \
+  "${OUTPUT_DIR}/${PCAP_FILE}" 2>&1 | grep -v "tar:" || true
+
+kubectl delete pod "$READER_POD" -n "$NAMESPACE" --ignore-not-found > /dev/null
+kubectl delete pod "$DEBUG_POD_NAME" -n "$NAMESPACE" --ignore-not-found > /dev/null
 
 if [ ! -f "${OUTPUT_DIR}/${PCAP_FILE}" ]; then
   echo -e "${RED}ERROR: Could not copy pcap file. The capture may have been empty.${RESET}"
-  echo "  Check debug pod logs: kubectl logs $DEBUG_POD_NAME -n $NAMESPACE"
-  kubectl delete pod "$DEBUG_POD_NAME" -n "$NAMESPACE" --ignore-not-found > /dev/null
   exit 1
 fi
 
 FILE_SIZE=$(du -h "${OUTPUT_DIR}/${PCAP_FILE}" | cut -f1)
 echo -e "${GREEN}  File saved: ${OUTPUT_DIR}/${PCAP_FILE} (${FILE_SIZE})${RESET}"
-
-# Clean up debug pod
-kubectl delete pod "$DEBUG_POD_NAME" -n "$NAMESPACE" --ignore-not-found > /dev/null
-echo -e "${GREEN}  Debug pod cleaned up.${RESET}"
+echo -e "${GREEN}  Debug pods cleaned up.${RESET}"
 
 # =============================================================
 # STEP 7 — Write instructions file
@@ -238,21 +264,10 @@ Duration was ${DURATION} seconds. I reproduced the connection
 failure during the capture window."
 
 
-HOW TO OPEN THIS FILE (OPTIONAL — FOR YOUR OWN REVIEW)
----------------------------------------------------------
-1. Download Wireshark from https://www.wireshark.org/download.html
-2. Open Wireshark → File → Open → select $PCAP_FILE
-3. Useful filters to try:
-   - tcp.port == $TARGET_PORT        (all SQL traffic)
-   - tls.handshake                   (TLS negotiation frames)
-   - tls.alert_message               (TLS failures — look here first)
-   - tcp.flags.reset == 1            (connection resets)
-
-
 FILES IN THIS FOLDER
 ---------------------
-  $PCAP_FILE              <- Upload this to support
-  HOW_TO_SHARE_WITH_SUPPORT.txt   <- This file
+  $PCAP_FILE                       <- Upload this to support
+  HOW_TO_SHARE_WITH_SUPPORT.txt    <- This file
 
 
 =============================================================
