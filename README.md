@@ -142,7 +142,14 @@ Replace it with your internal registry image.
 
 ## References
 
+This script automates all 5 steps described in the official Microsoft documentation:
+
 - [Microsoft Docs — Capture a TCP dump from a Linux node in AKS](https://learn.microsoft.com/en-us/troubleshoot/azure/azure-kubernetes/logs/capture-tcp-dump-linux-node-aks)
+  - Step 1: Find the node → automated via `kubectl get pod -o jsonpath`
+  - Step 2: Connect to the node → automated via privileged debug pod
+  - Step 3: Verify tcpdump is installed → automated via `nicolaka/netshoot` image
+  - Step 4: Run tcpdump → automated with all recommended flags and filters
+  - Step 5: Transfer the file locally → automated via reader pod and `kubectl cp`
 - [nicolaka/netshoot — Container Network Troubleshooting](https://github.com/nicolaka/netshoot)
 - [amjadaljunaidi/tcpdump — Helm chart alternative for multi-node captures](https://github.com/amjadaljunaidi/tcpdump)
 
