@@ -130,9 +130,18 @@ TARGET_PORT=$(prompt_port "4. Destination port: ")
 DURATION=$(prompt_duration "5. Capture duration in seconds (press Enter for 60): ")
 
 echo ""
+# Find node early so we can show it in the summary
+NODE_PREVIEW=$(kubectl get pod "$POD_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
+if [ -z "$NODE_PREVIEW" ]; then
+  echo -e "${RED}ERROR: Pod '$POD_NAME' not found in namespace '$NAMESPACE'.${RESET}"
+  echo "  Run: kubectl get pods -n $NAMESPACE"
+  exit 1
+fi
+
 echo -e "${YELLOW}${BOLD}--- Summary of inputs ---${RESET}"
 echo "  Pod:        $POD_NAME"
 echo "  Namespace:  $NAMESPACE"
+echo "  Node:       $NODE_PREVIEW"
 echo "  Target:     $TARGET_HOST:$TARGET_PORT"
 echo "  Duration:   ${DURATION}s"
 echo ""
