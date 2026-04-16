@@ -31,9 +31,57 @@ cleanup() {
 trap cleanup EXIT
 
 # =============================================================
-# INPUT VALIDATION FUNCTIONS
+# INPUT PROMPT FUNCTIONS — loop until valid input is given
 # =============================================================
 
+prompt_hostname() {
+  while true; do
+    read -p "$1" VALUE
+    if [[ "$VALUE" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+      echo "$VALUE"
+      return
+    fi
+    echo -e "${RED}  Invalid input. Use only letters, numbers, dots, and hyphens.${RESET}" >&2
+  done
+}
+
+prompt_port() {
+  while true; do
+    read -p "$1" VALUE
+    VALUE=${VALUE:-1433}
+    if [[ "$VALUE" =~ ^[0-9]+$ ]] && (( VALUE >= 1 && VALUE <= 65535 )); then
+      echo "$VALUE"
+      return
+    fi
+    echo -e "${RED}  Invalid port. Must be a number between 1 and 65535.${RESET}" >&2
+  done
+}
+
+prompt_duration() {
+  while true; do
+    read -p "$1" VALUE
+    VALUE=${VALUE:-60}
+    if [[ "$VALUE" =~ ^[0-9]+$ ]] && (( VALUE >= 1 && VALUE <= 3600 )); then
+      echo "$VALUE"
+      return
+    fi
+    echo -e "${RED}  Invalid duration. Must be a number between 1 and 3600 seconds.${RESET}" >&2
+  done
+}
+
+prompt_k8s_name() {
+  while true; do
+    read -p "$1" VALUE
+    VALUE=${VALUE:-${2:-}}
+    if [[ "$VALUE" =~ ^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?$ ]]; then
+      echo "$VALUE"
+      return
+    fi
+    echo -e "${RED}  Invalid name. Use only lowercase letters, numbers, and hyphens.${RESET}" >&2
+  done
+}
+
+# Keep validate functions for test suite compatibility
 validate_hostname() {
   if [[ ! "$1" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     echo -e "${RED}ERROR: Invalid target host '$1'. Use only letters, numbers, dots, and hyphens.${RESET}"
@@ -69,29 +117,17 @@ echo -e "${CYAN}${BOLD}============================================${RESET}"
 echo ""
 
 # =============================================================
-# STEP 1 — Collect and validate inputs
+# STEP 1 — Collect inputs with looping validation
 # =============================================================
 
 echo -e "${BOLD}Please answer the following questions:${RESET}"
 echo ""
 
-read -p "1. Pod name: " POD_NAME
-validate_k8s_name "$POD_NAME"
-
-read -p "2. Namespace (press Enter for 'default'): " NAMESPACE
-NAMESPACE=${NAMESPACE:-default}
-validate_k8s_name "$NAMESPACE"
-
-read -p "3. Target IP or hostname: " TARGET_HOST
-validate_hostname "$TARGET_HOST"
-
-read -p "4. Destination port: " TARGET_PORT
-TARGET_PORT=${TARGET_PORT:-1433}
-validate_port "$TARGET_PORT"
-
-read -p "5. Capture duration in seconds (press Enter for 60): " DURATION
-DURATION=${DURATION:-60}
-validate_duration "$DURATION"
+POD_NAME=$(prompt_k8s_name "1. Pod name: ")
+NAMESPACE=$(prompt_k8s_name "2. Namespace (press Enter for 'default'): " "default")
+TARGET_HOST=$(prompt_hostname "3. Target IP or hostname: ")
+TARGET_PORT=$(prompt_port "4. Destination port: ")
+DURATION=$(prompt_duration "5. Capture duration in seconds (press Enter for 60): ")
 
 echo ""
 echo -e "${YELLOW}${BOLD}--- Summary of inputs ---${RESET}"
