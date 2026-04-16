@@ -1,0 +1,10 @@
+# Packet capture output folders
+aks-pcap-*/
+
+# Capture files
+*.pcap
+*.cap
+
+# OS noise
+.DS_Store
+Thumbs.db
